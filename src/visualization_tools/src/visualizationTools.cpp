@@ -81,12 +81,13 @@ void odometryHandler(const nav_msgs::Odometry::ConstPtr& odom)
   systemTime = odom->header.stamp.toSec();
 
   double roll, pitch, yaw;
+  //利用 TF 将四元数转换为滚转角、俯仰角、偏航角（roll, pitch, yaw）。
   geometry_msgs::Quaternion geoQuat = odom->pose.pose.orientation;
   tf::Matrix3x3(tf::Quaternion(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w)).getRPY(roll, pitch, yaw);
 
   float dYaw = fabs(yaw - vehicleYaw);
   if (dYaw > PI) dYaw = 2 * PI  - dYaw;
-
+  //计算当前里程计中的位置与之前保存的 vehicleX、vehicleY、vehicleZ 的差值，以及偏航角变化
   float dx = odom->pose.pose.position.x - vehicleX;
   float dy = odom->pose.pose.position.y - vehicleY;
   float dz = odom->pose.pose.position.z - vehicleZ;
@@ -99,8 +100,8 @@ void odometryHandler(const nav_msgs::Odometry::ConstPtr& odom)
     vehicleZ = odom->pose.pose.position.z;
     return;
   }
-
   if (systemInited) {
+  //计算从系统启动到现在的时间间隔
     timeDuration = systemTime - systemInitTime;
     
     std_msgs::Float32 timeDurationMsg;
@@ -124,7 +125,8 @@ void odometryHandler(const nav_msgs::Odometry::ConstPtr& odom)
   vehicleX = odom->pose.pose.position.x;
   vehicleY = odom->pose.pose.position.y;
   vehicleZ = odom->pose.pose.position.z;
-
+  //写入车辆状态（位置、姿态、时间）到 trajFile，
+  //并将当前点加入 trajectory 点云中，然后将 trajectory 点云转换成 ROS 消息发布。
   fprintf(trajFilePtr, "%f %f %f %f %f %f %f\n", vehicleX, vehicleY, vehicleZ, roll, pitch, yaw, timeDuration);
 
   pcl::PointXYZI point;
@@ -157,6 +159,11 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn)
   laserCloud->clear();
   pcl::fromROSMsg(*laserCloudIn, *laserCloud);
 
+  // 使用运算符 += 将当前激光点云加入 exploredVolumeCloud（累计所有激光扫描数据），之后对其进行下采样过滤：
+
+  // 设置滤波器输入 overallCloud = exploredVolumeCloud，
+  // 调用 voxel_filter_.filter 得到过滤后的点云存入 exploredVolumeCloud2，
+  // 使用临时指针交换 exploredVolumeCloud 与过滤后的点云。
   *exploredVolumeCloud += *laserCloud;
 
   exploredVolumeCloud2->clear();
@@ -166,7 +173,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn)
   pcl::PointCloud<pcl::PointXYZI>::Ptr tempCloud = exploredVolumeCloud;
   exploredVolumeCloud = exploredVolumeCloud2;
   exploredVolumeCloud2 = tempCloud;
-
+  //计算探索体积
   exploredVolume = exploredVolumeVoxelSize * exploredVolumeVoxelSize * 
                    exploredVolumeVoxelSize * exploredVolumeCloud->points.size();
 
@@ -190,7 +197,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn)
 
     exploredAreaDisplayCount = 0;
   }
-
+  //将当前探索体积、累计行驶距离、运行时长和时间间隔写入指标文件 metricFile，并通过 ROS 消息发布 exploredVolume 和 travelingDis。
   fprintf(metricFilePtr, "%f %f %f %f\n", exploredVolume, travelingDis, runtime, timeDuration);
 
   std_msgs::Float32 exploredVolumeMsg;

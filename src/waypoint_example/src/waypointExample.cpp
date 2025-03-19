@@ -29,16 +29,15 @@ const double PI = 3.1415926;
 
 string waypoint_file_dir;
 string boundary_file_dir;
-double waypointXYRadius = 0.5;
-double waypointZBound = 5.0;
-double waitTime = 0;
-double waitTimeStart = 0;
-bool isWaiting = false;
-double frameRate = 5.0;
-double speed = 1.0;
-bool sendSpeed = true;
-bool sendBoundary = true;
-
+double waypointXYRadius = 0.5;  // 在 XY 平面内判断是否到达一个航点的半径
+double waypointZBound = 5.0;      // 在 Z 轴上判断是否到达航点的容忍范围
+double waitTime = 0;            // 到达航点后等待的时间
+double waitTimeStart = 0;       // 记录开始等待的时间
+bool isWaiting = false;         // 是否正在等待
+double frameRate = 5.0;         // 发布消息的频率
+double speed = 1.0;             // 发布给机器人控制的速度
+bool sendSpeed = true;          // 是否发送速度消息
+bool sendBoundary = true;       // 是否发送边界消息
 pcl::PointCloud<pcl::PointXYZ>::Ptr waypoints(new pcl::PointCloud<pcl::PointXYZ>());
 pcl::PointCloud<pcl::PointXYZ>::Ptr boundary(new pcl::PointCloud<pcl::PointXYZ>());
 
@@ -47,7 +46,9 @@ double curTime = 0, waypointTime = 0;
 
 // reading waypoints from file function
 void readWaypointFile()
-{
+{//打开指定的航点文件，解析 PLY 格式文件的 header（直到 "end_header" 为止），
+//然后读取顶点（vertex）部分的点数，再依次读取每个点的 x, y, z 坐标，存储到 waypoints 点云中。
+
   FILE* waypoint_file = fopen(waypoint_file_dir.c_str(), "r");
   if (waypoint_file == NULL) {
     printf ("\nCannot read input files, exit.\n\n");
@@ -218,6 +219,8 @@ int main(int argc, char** argv)
     float disZ = vehicleZ - waypoints->points[wayPointID].z;
 
     // start waiting if the current waypoint is reached
+    // 如果车辆接近当前航点（XY 距离小于 waypointXYRadius 且 Z 方向误差小于 waypointZBound）且未处于等待状态，
+    // 则记录等待开始时间并将状态置为等待
     if (sqrt(disX * disX + disY * disY) < waypointXYRadius && fabs(disZ) < waypointZBound && !isWaiting) {
       waitTimeStart = curTime;
       isWaiting = true;

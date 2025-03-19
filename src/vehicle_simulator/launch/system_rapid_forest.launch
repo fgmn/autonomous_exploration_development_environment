@@ -1,14 +1,14 @@
 <launch>
 
-  <arg name="world_name" default="garage"/>
+  <arg name="world_name" default="rapid_forest"/>
   <arg name="vehicleHeight" default="0.75"/>
   <arg name="cameraOffsetZ" default="0"/>
-  <arg name="vehicleX" default="0"/>
-  <arg name="vehicleY" default="0"/>
+  <arg name="vehicleX" default="40"/>
+  <arg name="vehicleY" default="40"/>
   <arg name="terrainZ" default="0"/>
   <arg name="vehicleYaw" default="0"/>
-  <arg name="gazebo_gui" default="false"/>
-  <arg name="checkTerrainConn" default="true"/>
+  <arg name="gazebo_gui" default="true"/>
+  <arg name="checkTerrainConn" default="false"/>
 
   <!-- <include file="$(find ps3joy)/launch/ps3.launch" /> -->
 

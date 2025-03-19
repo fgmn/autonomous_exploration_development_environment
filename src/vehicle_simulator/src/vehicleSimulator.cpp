@@ -35,6 +35,7 @@ using namespace std;
 const double PI = 3.1415926;
 
 bool use_gazebo_time = false;
+// 摄像头、传感器相对于车辆的位置偏移及车辆高度。
 double cameraOffsetZ = 0;
 double sensorOffsetX = 0;
 double sensorOffsetY = 0;
@@ -45,6 +46,7 @@ bool adjustZ = false;
 double terrainRadiusZ = 0.5;
 int minTerrainPointNumZ = 10;
 double smoothRateZ = 0.2;
+// 用于计算地形倾角（pitch 和 roll）的参数。
 bool adjustIncl = false;
 double terrainRadiusIncl = 1.5;
 int minTerrainPointNumIncl = 500;
@@ -105,13 +107,14 @@ void scanHandler(const sensor_msgs::PointCloud2::ConstPtr& scanIn)
     }
     return;
   }
-
+  //接着获取点云消息的时间戳，并判断是否已有有效的里程计数据（通过 odomSendIDPointer 检查）。
   double scanTime = scanIn->header.stamp.toSec();
 
   if (odomSendIDPointer < 0)
   {
     return;
   }
+  // 通过循环查找时间栈中最接近（但不大于）当前点云时间的里程计数据，将该索引保存到 odomRecIDPointer。
   while (odomTimeStack[(odomRecIDPointer + 1) % stackNum] < scanTime &&
          odomRecIDPointer != (odomSendIDPointer + 1) % stackNum)
   {
@@ -127,7 +130,7 @@ void scanHandler(const sensor_msgs::PointCloud2::ConstPtr& scanIn)
   float vehicleRecYaw = vehicleYaw;
   float terrainRecRoll = terrainRoll;
   float terrainRecPitch = terrainPitch;
-
+  //根据是否使用 Gazebo 时间，选择使用当前最新的车辆状态或从历史数组中取出相应的状态数据：
   if (use_gazebo_time)
   {
     odomRecTime = odomTimeStack[odomRecIDPointer];
@@ -151,6 +154,7 @@ void scanHandler(const sensor_msgs::PointCloud2::ConstPtr& scanIn)
   pcl::removeNaNFromPointCloud(*scanData, *scanData, scanInd);
 
   int scanDataSize = scanData->points.size();
+  //对每个点进行转换，将点云数据从车辆局部坐标系转换到全局“map”坐标系。
   for (int i = 0; i < scanDataSize; i++)
   {
     float pointX1 = scanData->points[i].x;
@@ -173,6 +177,7 @@ void scanHandler(const sensor_msgs::PointCloud2::ConstPtr& scanIn)
   // publish 5Hz registered scan messages
   sensor_msgs::PointCloud2 scanData2;
   pcl::toROSMsg(*scanData, scanData2);
+  //将转换后的点云数据打包成 ROS 消息，并发布到 /registered_scan 话题：
   scanData2.header.stamp = ros::Time().fromSec(odomRecTime);
   scanData2.header.frame_id = "map";
   pubScanPointer->publish(scanData2);
@@ -361,6 +366,7 @@ int main(int argc, char** argv)
 
   ros::Rate rate(200);
   bool status = ros::ok();
+  //进入主循环（200Hz）：
   while (status)
   {
     ros::spinOnce();
@@ -368,15 +374,16 @@ int main(int argc, char** argv)
     float vehicleRecRoll = vehicleRoll;
     float vehicleRecPitch = vehiclePitch;
     float vehicleRecZ = vehicleZ;
-
+    //将地形的滚转角和俯仰角按照当前车辆的偏航角（vehicleYaw）进行旋转变换
     vehicleRoll = terrainRoll * cos(vehicleYaw) + terrainPitch * sin(vehicleYaw);
     vehiclePitch = -terrainRoll * sin(vehicleYaw) + terrainPitch * cos(vehicleYaw);
+    //根据车辆的角速度 vehicleYawRate 对偏航角进行积分更新：
     vehicleYaw += 0.005 * vehicleYawRate;
     if (vehicleYaw > PI)
       vehicleYaw -= 2 * PI;
     else if (vehicleYaw < -PI)
       vehicleYaw += 2 * PI;
-
+    //更新车辆位置（X, Y, Z）
     vehicleX += 0.005 * cos(vehicleYaw) * vehicleSpeed +
                 0.005 * vehicleYawRate * (-sin(vehicleYaw) * sensorOffsetX - cos(vehicleYaw) * sensorOffsetY);
     vehicleY += 0.005 * sin(vehicleYaw) * vehicleSpeed +
@@ -399,6 +406,7 @@ int main(int argc, char** argv)
     terrainPitchStack[odomSendIDPointer] = terrainPitch;
 
     // publish 200Hz odometry messages
+    //使用 tf::createQuaternionMsgFromRollPitchYaw 将 roll、pitch、yaw 转为四元数；
     geometry_msgs::Quaternion geoQuat = tf::createQuaternionMsgFromRollPitchYaw(vehicleRoll, vehiclePitch, vehicleYaw);
 
     odomData.header.stamp = odomTime;
