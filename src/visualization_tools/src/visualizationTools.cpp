@@ -31,6 +31,7 @@ const double PI = 3.1415926;
 string metricFile;
 string trajFile;
 string mapFile;
+string compFile;
 double overallMapVoxelSize = 0.5;
 double exploredAreaVoxelSize = 0.3;
 double exploredVolumeVoxelSize = 0.5;
@@ -48,6 +49,7 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr exploredAreaCloud(new pcl::PointCloud<pcl::
 pcl::PointCloud<pcl::PointXYZI>::Ptr exploredAreaCloud2(new pcl::PointCloud<pcl::PointXYZI>());
 pcl::PointCloud<pcl::PointXYZI>::Ptr exploredVolumeCloud(new pcl::PointCloud<pcl::PointXYZI>());
 pcl::PointCloud<pcl::PointXYZI>::Ptr exploredVolumeCloud2(new pcl::PointCloud<pcl::PointXYZI>());
+pcl::PointCloud<pcl::PointXYZI>::Ptr exploredPlaneCloud(new pcl::PointCloud<pcl::PointXYZI>());
 pcl::PointCloud<pcl::PointXYZI>::Ptr trajectory(new pcl::PointCloud<pcl::PointXYZI>());
 
 const int systemDelay = 5;
@@ -60,6 +62,7 @@ bool systemInited = false;
 float vehicleYaw = 0;
 float vehicleX = 0, vehicleY = 0, vehicleZ = 0;
 float exploredVolume = 0, travelingDis = 0, runtime = 0, timeDuration = 0;
+float exploredArea = 0;
 
 pcl::VoxelGrid<pcl::PointXYZ> overallMapDwzFilter;
 pcl::VoxelGrid<pcl::PointXYZI> exploredAreaDwzFilter;
@@ -75,6 +78,7 @@ ros::Publisher *pubTimeDurationPtr = NULL;
 
 FILE *metricFilePtr = NULL;
 FILE *trajFilePtr = NULL;
+FILE *compFilePtr = NULL;
 
 void odometryHandler(const nav_msgs::Odometry::ConstPtr& odom)
 {
@@ -176,6 +180,14 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn)
   //计算探索体积
   exploredVolume = exploredVolumeVoxelSize * exploredVolumeVoxelSize * 
                    exploredVolumeVoxelSize * exploredVolumeCloud->points.size();
+  //计算探索面积
+  exploredPlaneCloud->clear();
+  for (const auto& point : exploredVolumeCloud->points) {
+    if (point.z <= exploredVolumeVoxelSize) {
+      exploredPlaneCloud->push_back(point);
+    }
+  }
+  exploredArea = exploredVolumeVoxelSize * exploredVolumeVoxelSize * exploredPlaneCloud->points.size();
 
   *exploredAreaCloud += *laserCloud;
 
@@ -199,6 +211,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudIn)
   }
   //将当前探索体积、累计行驶距离、运行时长和时间间隔写入指标文件 metricFile，并通过 ROS 消息发布 exploredVolume 和 travelingDis。
   fprintf(metricFilePtr, "%f %f %f %f\n", exploredVolume, travelingDis, runtime, timeDuration);
+  // fprintf(compFilePtr, "%f\t%f\t%f\t%f\t%f\t%f\t%f\n", timeDuration, vehicleX, vehicleY, vehicleZ, exploredArea, runtime, travelingDis);
 
   std_msgs::Float32 exploredVolumeMsg;
   exploredVolumeMsg.data = exploredVolume;
@@ -214,6 +227,15 @@ void runtimeHandler(const std_msgs::Float32::ConstPtr& runtimeIn)
   runtime = runtimeIn->data;
 }
 
+//record 探索数据
+void publishExplorationData(const ros::TimerEvent&)
+{
+  if (!systemInited) {
+    return;
+  }
+  fprintf(compFilePtr, "%f\t%f\t%f\t%f\t%f\t%f\t%f\n", timeDuration, vehicleX, vehicleY, vehicleZ, exploredArea, runtime, travelingDis);
+}
+
 int main(int argc, char** argv)
 {
   ros::init(argc, argv, "visualizationTools");
@@ -223,6 +245,7 @@ int main(int argc, char** argv)
   nhPrivate.getParam("metricFile", metricFile);
   nhPrivate.getParam("trajFile", trajFile);
   nhPrivate.getParam("mapFile", mapFile);
+  nhPrivate.getParam("compFile", compFile);
   nhPrivate.getParam("overallMapVoxelSize", overallMapVoxelSize);
   nhPrivate.getParam("exploredAreaVoxelSize", exploredAreaVoxelSize);
   nhPrivate.getParam("exploredVolumeVoxelSize", exploredVolumeVoxelSize);
@@ -254,6 +277,8 @@ int main(int argc, char** argv)
   ros::Publisher pubTimeDuration = nh.advertise<std_msgs::Float32> ("/time_duration", 5);
   pubTimeDurationPtr = &pubTimeDuration;
 
+  ros::Timer pubExplorationDataTimer = nhPrivate.createTimer(ros::Duration(0.2), publishExplorationData);
+
   //ros::Publisher pubRuntime = nh.advertise<std_msgs::Float32> ("/runtime", 5);
 
   overallMapDwzFilter.setLeafSize(overallMapVoxelSize, overallMapVoxelSize, overallMapVoxelSize);
@@ -279,8 +304,11 @@ int main(int argc, char** argv)
 
   metricFile += "_" + timeString + ".txt";
   trajFile += "_" + timeString + ".txt";
+  // compFile += "_" + timeString + ".txt";
   metricFilePtr = fopen(metricFile.c_str(), "w");
   trajFilePtr = fopen(trajFile.c_str(), "w");
+  compFilePtr = fopen(compFile.c_str(), "w");
+  fprintf(compFilePtr, "explored time 	x 	y 	z 	explored volume(m2) 	iteration time 	distance/path-length\n");
 
   ros::Rate rate(100);
   bool status = ros::ok();
@@ -302,6 +330,7 @@ int main(int argc, char** argv)
 
   fclose(metricFilePtr);
   fclose(trajFilePtr);
+  fclose(compFilePtr);
 
   printf("\nExploration metrics and vehicle trajectory are saved in 'src/vehicle_simulator/log'.\n\n");
 
